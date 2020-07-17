@@ -1,0 +1,45 @@
+import numpy as np
+import pandas as pd
+from scipy.stats import zscore
+dt=pd.read_csv("Loan Approval.csv")
+ip=dt.drop(['entry_id','pay_schedule','e_signed','risk_score_3'],axis=1)
+z=np.abs(zscore(ip))
+print(np.where(z>3))
+ip_o=ip[(z<3).all(axis=1)]
+op_o=dt['e_signed'].drop(labels=list(np.where(z>3)[0]),axis=0)
+f=dt['pay_schedule'].drop(labels=list(np.where(z>3)[0]),axis=0)
+from mlxtend.feature_selection import SequentialFeatureSelector
+from sklearn.ensemble import RandomForestClassifier
+sks=SequentialFeatureSelector(RandomForestClassifier(n_estimators=30,criterion='entropy',random_state=0),k_features=11,forward=False,verbose=1,scoring='precision')
+sks.fit(ip_o,op_o)
+feat_names=list(sks.k_feature_names_)
+newdata=ip_o[feat_names]
+data=pd.concat([newdata,f],axis=1)
+from sklearn.preprocessing import LabelEncoder
+le=LabelEncoder()
+X=data.values
+le.fit(X[:,-1])
+X[:,-1]=le.transform(X[:,-1])
+Y=op_o.values
+X=X.astype("float")
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+trans=ColumnTransformer(transformers=[('onehot',OneHotEncoder(),[-1])],remainder="passthrough")
+X=trans.fit_transform(X)
+from sklearn.preprocessing import StandardScaler
+sc = StandardScaler()
+X[:, 4:] = sc.fit_transform(X[:, 4:])
+from sklearn.model_selection import KFold
+kf=KFold(n_splits=10)
+l=[]
+for train_index,test_index in kf.split(X):
+        X_train,X_test,Y_train,Y_test=X[train_index],X[test_index],Y[train_index],Y[test_index]
+        import xgboost as xgb
+        data_dmatrix = xgb.DMatrix(data=X,label=Y)
+        xg_reg = xgb.XGBClassifier(colsample_bytree = 0.5, learning_rate = 0.007,
+                        max_depth = 12, alpha = 0.5, n_estimators = 1000)
+        xg_reg.fit(X_train,Y_train)
+        Y_pred=xg_reg.predict(X_test)
+        from sklearn.metrics import precision_score
+        l.append(precision_score(Y_test,Y_pred))
+       
